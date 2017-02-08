@@ -1,20 +1,22 @@
 #! /usr/bin/env python3
 
 #ACPCHandConverter.py
-#Authors: Chris Alvino, Vahe Hagopian, 2016-10-20
+#Usage: ACPCHandHistory.py infile outfile table_num game_type
+#Authors: Chris Alvino, Vahe Hagopian 2016-10-20
+#Refactored 2017-02-08
 
 
 from datetime import datetime
 
 
 class ACPCHandConverter(object):
-    """Converts ACPC hand histories into Poker Stars hand histories.
+    """Converts ACPC hand histories into Poker Stars hand histories
 
     Attributes:
-        infile_name (str): Name of file containing the input hand
+        infile (str): Name of file containing the input hand
             histories in the format used by the Annual Computer
-            Poker Competition
-        outfile_name (str): Name of file where the output hand
+            Poker Competitioninput file
+        outfile (str): Name of file where the output hand
             histories, in Poker Stars format, will be written
         table_num (str): A positive integer that represents a
             unique table number for all of the hands that are in
@@ -22,463 +24,347 @@ class ACPCHandConverter(object):
         game_type (str): One letter ('L' or 'N') representing the
             type of hold'em game played in the input file: 'L' is
             limit and 'N' is no-limit
-        bb (str): A positive integer multiple of 2 representing the
-            size of the big blind for the hands in the input file
-
-        hand_num (int): Unique identifier for each hand in infile_name
-        hole_cards (list of str): The players' hole cards listed by
+        bb (int): A positive integer representing the size of the
+            big blind for the hands in the input file
+        players (list<str>): The players' names listed by name
+        np (int):
+        still_in (list<bool>): Flags that denote whether a player
+            has not yet folded in the current hand
+        total_bet (list<int>): The total amount wagered by each
+            player in the current hand
+        hc (list<str>): The players' hole cards listed by
             player
-        board_cards (list of str): The board cards listed by street
-        players (list of str): The players' names listed by name
-        results (list of float): The players' monetary results listed
-            by player
-        actions_by_round (list of str): The players' actions listed by
-            street
-        seat_names (list of str): The players' seat assignments
-            starting with Seat 1
-        positions (dictionary (str->int)): Supported positions are
+        positions (dictionary str->int): Supported positions are
             mapped to their order within the fields of the input file
-        self.out_hh (str:) The output hand history
-
-        convert_hh(): Translates all input hand histories in
-            infile_name into output hand histories
-        process_hh(): Parses a line of the input hand history
-        create_header(): Creates header section of output hand history
-        create_actions(): Creates action body of outpuut hand history
-        award_pot(): Finalizes an output hand history
+        seat_names (list<str>): The players' seat assignments
+            starting with Seat 1
+        street (int): Round of betting: 0->preflop, 1->flop, 2->turn, 3->river
+        bet_incr (int): The latest bet or raise (aggressive action)
+            in the current round of betting
+        out_hh (str): The output hand history to be written to outfile
     """
 
-    def __init__(self, infile_name, outfile_name, table_num, game_type, bb):
-        self.infile_name = infile_name
-        self.outfile_name = outfile_name
-
-        if int(table_num) < 1:
-            raise ValueError("'table_num' must be a positive integer.")
+    def __init__(self, infile, outfile, table_num, game_type):
+        self.infile = infile
+        self.outfile = outfile
         self.table_num = int(table_num)
-
-        if game_type != 'L' and game_type != 'N':
-            raise ValueError("'game_type' must be 'L' or 'N'.")
         self.game_type = game_type
-
-        if int(bb) < 2 or int(bb) % 2 != 0:
-            raise ValueError("'bb' must be a positive integer multiple of 2.")
-        self.bb = int(bb)
-
-        self.hand_num = 0
-        self.hole_cards = []
-        self.board_cards = []
+        if game_type == 'L':
+            self.bb = 10
+        else:
+            self.bb = 100
         self.players = []
-        self.results = []
-        self.actions_by_round = []
-        self.seat_names = []
+        self.np = 0
+        self.still_in = []
+        self.total_bet = []
+        self.hc = []
         self.positions = {}
+        self.seat_names = []
+        self.street = 0
+        self.bet_incr = 0
         self.out_hh = ""
 
     def convert_hh(self):
-        """Translates all hand histories in infile_name
-        
-        Returns:
-            None
-        Effects:
-            Writes to outfile_name
+        """Public method to perform hand history conversion.  Calls all
+        of the other methods in this class.
         """
-
-        with open(self.infile_name, 'r') as infile, \
-             open(self.outfile_name, 'w') as outfile:
-
+        
+        with open(self.infile, 'r') as ifile, open(self.outfile, 'w') as ofile:
             first_hand = True
-            for line in infile:
-                in_hh = line.rstrip('\n')
-                if in_hh[0:5] != 'STATE':
+            for line in ifile:
+                if line[0:5] != 'STATE':
                     continue
-
-                self.process_hh(in_hh)
-
-                # first hand decides seat assignments
+                hand_num, actions, results, bc = self.process_hh(line)
                 if first_hand == True:
                     first_hand = False
                     for player in self.players:
                         self.seat_names.append(player)
+                self.create_header(hand_num)
+                for self.street in range(len(actions)):
+                    self.create_board(bc)
+                    cur_player = self.create_betting(actions,\
+                                                     *self.setup_betting())
+                self.showdown(results, cur_player)
+                ofile.write(self.out_hh)
 
-                self.create_header()
-                self.award_pot(*self.create_actions())
-                outfile.write(self.out_hh)
-
-
-    def process_hh(self, in_hh):
-        """Extracts the components of each hand from the input hand
-           history.
+    def process_hh(self, line):
+        """Parse and Tokenize a line from the input hand history
 
         Args:
-            in_hh: A string containing a single input hand history.
-        Returns:
-            None
+            line (str): An input hand history
         """
-        in_hh_split = in_hh.split(':')
-
-        if len(in_hh_split) != 6:
-            print(in_hh)
-            raise Exception("Incorrect number of fields")
-
-        self.hand_num = int(in_hh_split[1])
-
-        self.players = in_hh_split[5].split('|')
-        if len(self.players) > 3 or len(self.players) < 2:
-            raise Exception("Invalid number of players")
-
-        self.results = [float(res) for res in in_hh_split[4].split('|')]
-        if len(self.results) != len(self.players):
-            raise Exception("Number of results != number of players")
-
-        self.actions_by_round = in_hh_split[2].split('/')
-        if len(self.actions_by_round) < 1 or len(self.actions_by_round) > 4:
-            raise Exception("Invalid number of action rounds")
-
-        # extract hole cards and board cards
-        cards = in_hh_split[3].split('|')
-        self.hole_cards = [cards[0]]
-        if len(self.players) != 2:
-            self.hole_cards.append(cards[1])
+        
+        hh = line.rstrip('\n').split(':')
+        hand_num = int(hh[1])
+        actions = hh[2].split('/')
+        results = [float(result) for result in hh[4].split('|')]
+        self.players = hh[5].split('|')
+        self.np = len(self.players)
+        self.still_in = [True] * self.np
+        self.total_bet = [0] * self.np
+        if self.np == 2:
+            self.positions['utg'] = 1
+            self.positions['button'] = 1
+            self.positions['small blind'] = 1
+            self.positions['big blind'] = 0
+        else:
+            self.positions['utg'] = 2
+            self.positions['button'] = self.np - 1
+            self.positions['small blind'] = 0
+            self.positions['big blind'] = 1
+        cards = hh[3].split('|')
         cards_last = cards[-1].split('/')
-        self.hole_cards.append(cards_last[0])
-        self.board_cards = cards_last[1:]
-        if len(self.actions_by_round) != len(self.board_cards) + 1:
-            raise Exception("Number of action rounds != number of board cards")
+        self.hc = [cards[0]]
+        if self.np != 2:
+            self.hc.append(cards[1])
+        self.hc.append(cards_last[0])
+        bc = cards_last[1:]
+        return hand_num, actions, results, bc
 
+    def create_header(self, hand_num):
+        """Print initial part of hand history
 
-    def create_header(self):
-        """Create output hand history header
-
-        Returns:
-            None
+        Args:
+            hand_num (int): The unique number of the current hand
         """
+        
         self.out_hh = "PokerStars Hand #"
-        self.out_hh += str(self.table_num) + str(self.hand_num) + ": "
-
+        self.out_hh += str(self.table_num) + str(hand_num) + ": "
         if self.game_type == 'L':
             self.out_hh += "Hold'em Fixed Limit ($" + str(self.bb)
             self.out_hh += "/$" + str(self.bb * 2) +  ") - "
         else:
             self.out_hh += "Hold'em No Limit ($" + str(int(self.bb / 2))
             self.out_hh += "/$" + str(self.bb) +  ") - "
-
         self.out_hh += datetime.today().strftime("%Y/%m/%d %H:%M:%S\n")
         self.out_hh += "Table '" + str(self.table_num) + "' "
-
-
-        # need to do reversed blinds for heads-up play
-        if len(self.players) == 2:
-            self.positions['utg'] = 1
-            self.positions['button'] = 1
-            self.positions['small blind'] = 1
-            self.positions['big blind'] = 0
+        if self.np == 2:
             self.out_hh += "2-max "
         else:
-            self.positions['utg'] = 2
-            self.positions['button'] = len(self.players) - 1
-            self.positions['small blind'] = 0
-            self.positions['big blind'] = 1
-            self.out_hh += "6-max "        
-
-        # determine button player
-        for i in range(len(self.players)):
+            self.out_hh += "6-max "
+        for i in range(self.np):
             if self.seat_names[i] == self.players[self.positions['button']]:
                 self.out_hh += "Seat #" + str(i+1) + " is the button\n"
                 break
-
-        # list seats and corresponding stack sizes
-        for i in range(len(self.players)):
+        for i in range(self.np):
             self.out_hh += "Seat " + str(i+1) + ": "
             self.out_hh += self.seat_names[i] + " ($20000 in chips)\n"
-
-        # lists blinds
         self.out_hh += self.players[self.positions['small blind']]
         self.out_hh += ": posts small blind $" + str(int(self.bb / 2)) + "\n"
         self.out_hh += self.players[self.positions['big blind']]
         self.out_hh += ": posts big blind $" + str(self.bb) + "\n"
-
-        # list hole cards
         self.out_hh += "*** HOLE CARDS ***\n"
-        for i in range(len(self.players)):
+        for i in range(self.np):
             self.out_hh += "Dealt to " + self.players[i] + " ["
-            self.out_hh += self.hole_cards[i][0:2] + " "
-            self.out_hh += self.hole_cards[i][2:4] + "]\n"
+            self.out_hh += self.hc[i][0:2] + " "
+            self.out_hh += self.hc[i][2:4] + "]\n"
 
+    def create_board(self, bc):
+        """Print board
 
-    def create_actions(self):
-        """ Creates the action sequence of the hand history
-        Returns:
-            players_in_hand (list of bool): list of players who haven't
-                folded yet.
-            wagered_total (list of int): list of how much each player
-                has put into the pot in the current hand.
-            current_bet (int): incremental additional amount of the last
-                bet or raise
-            current_player (int): the first player to show down.
-        """
-        # flags whether player has folded
-        players_in_hand = [True] * len(self.players)
-
-        # amount put into pot by each player over all rounds of betting
-        wagered_total = [0] * len(self.players)
-
-        for round in range(len(self.actions_by_round)): # rounds of betting
-            if round == 1:
-                self.out_hh += "*** FLOP *** ["
-                self.out_hh += self.board_cards[0][0:2] + " "
-                self.out_hh += self.board_cards[0][2:4] + " "
-                self.out_hh += self.board_cards[0][4:6] + "]\n"
-            elif round == 2:
-                self.out_hh += "*** TURN *** ["
-                self.out_hh += self.board_cards[0][0:2] + " "
-                self.out_hh += self.board_cards[0][2:4] + " "
-                self.out_hh += self.board_cards[0][4:6] + "]"
-                self.out_hh += " [" + self.board_cards[1][0:2] + "]\n"
-            elif round == 3:
-                self.out_hh += "*** RIVER *** ["
-                self.out_hh += self.board_cards[0][0:2] + " "
-                self.out_hh += self.board_cards[0][2:4] + " "
-                self.out_hh += self.board_cards[0][4:6] + "]"
-                self.out_hh += " [" + self.board_cards[1][0:2] + "]"
-                self.out_hh += " [" + self.board_cards[2][0:2] + "]\n"
-            
-            # this is a list of lists representing each action in a particular
-            # round as a separate list.  In the case of no-limit bets and
-            # raises, each sublist will contain two entries, the action and
-            # the size.
-            actions_this_round = []
-
-            if self.game_type == 'L':
-                for action in self.actions_by_round[round]:
-                    actions_this_round.append([action])
-            else:
-                i = 0
-                while i < len(self.actions_by_round[round]):
-                    if not self.actions_by_round[round][i] == 'r':
-                        actions_this_round.append(
-                            [self.actions_by_round[round][i]])
-                        i += 1
-                    else:
-                        i += 1
-                        bet_size = 0
-                        while self.actions_by_round[round][i].isdigit():
-                            bet_size = (bet_size * 10 + 
-                                        int(self.actions_by_round[round][i]))
-                            i += 1
-                        actions_this_round.append(['r', bet_size])
-
-            # amount put into pot by each player in current round
-            wagered_this_round = [0] * len(self.players)
-
-            if round == 0:
-                startingPlayer = self.positions['utg']
-                bet_this_round = self.bb
-                wagered_this_round[self.positions['small blind']] += \
-                                                               int(self.bb / 2)
-                wagered_this_round[self.positions['big blind']] += self.bb
-            else:
-                # heads-up reversed blinds
-                if len(self.players) == 2:
-                    startingPlayer = self.positions['big blind']
-                else:
-                    startingPlayer = self.positions['small blind']
-                bet_this_round = 0
-
-            if self.game_type == 'L':
-                # preflop or flop
-                if round == 0 or round == 1:
-                    current_bet = self.bb
-                else:
-                    current_bet = self.bb * 2
-            else:
-                if round == 0:
-                    current_bet = self.bb
-                else:
-                    current_bet = 0
-
-            current_player = startingPlayer
-
-            # run through all of the actions in the current round
-            for act in actions_this_round:
-
-                # index 0 is always a letter (f, c, or r)
-                action = act[0]
-
-                # get player who matches above action
-                while not players_in_hand[current_player]:
-                    current_player = (current_player + 1) % len(self.players)
-
-                amountToCall = (bet_this_round -
-                                wagered_this_round[current_player])
-
-                # execute action, record state, and write string
-                if action == 'f':
-                    players_in_hand[current_player] = False
-                    self.out_hh += self.players[current_player] + ": folds\n"
-                elif action == 'c': # this is either check or call
-                    if amountToCall == 0: # check
-                        self.out_hh += self.players[current_player]
-                        self.out_hh += ": checks\n"
-                    else: # call
-                        wagered_this_round[current_player] += amountToCall
-                        self.out_hh += self.players[current_player]
-                        self.out_hh += ": calls $" + str(amountToCall) + "\n"
-                # this is either bet or raise; for no-limit, we look at index 1
-                elif action == 'r':
-                    if self.game_type == 'N':
-                        current_bet = (act[1] - wagered_total[current_player] -
-                                       wagered_this_round[current_player] -
-                                       amountToCall)
-                    wagered_this_round[current_player] += (amountToCall +
-                                                           current_bet)
-                    bet_this_round += current_bet 
-
-                    # normal raise or preflop big blind option raise
-                    if amountToCall > 0 or round == 0:
-                        self.out_hh += self.players[current_player]
-                        self.out_hh += ": raises $"
-                        self.out_hh += str(amountToCall + current_bet)
-                        self.out_hh += " to $" + str(bet_this_round) + "\n"
-                    else: # bet
-                        self.out_hh += self.players[current_player]
-                        self.out_hh += ": bets $" + str(current_bet) + "\n"
-
-                # move to next player
-                current_player = (current_player + 1) % len(self.players)
-
-                while not players_in_hand[current_player]:
-                    current_player = (current_player + 1) % len(self.players)
-
-            for i in range(len(self.players)):
-                wagered_total[i] += wagered_this_round[i]
-
-        return players_in_hand, wagered_total, current_bet, current_player
-
-
-    def award_pot(self, players_in_hand, wagered_total, current_bet,
-                  current_player):
-        """Finishes the output string with pot and showdown details
-    
         Args:
-            players_in_hand: A list of bools representing which players
-                haven't folded yet.
-            wagered_total: A list of integers denoting how much each
-                player has put into the pot in the current hand.
-            current_bet: An integer denoting the incremental additional
-                amount of the last bet or raise
-            current_player: an integer representing the first player who
-                has to show down.
-        Returns:
-            None
+            bc (list<str>): The board (community) cards
         """
-        players_left = sum(players_in_hand)
+        
+        if self.street == 1:
+            self.out_hh += "*** FLOP *** ["
+            self.out_hh += bc[0][0:2] + " "
+            self.out_hh += bc[0][2:4] + " "
+            self.out_hh += bc[0][4:6] + "]\n"
+        elif self.street == 2:
+            self.out_hh += "*** TURN *** ["
+            self.out_hh += bc[0][0:2] + " "
+            self.out_hh += bc[0][2:4] + " "
+            self.out_hh += bc[0][4:6] + "]"
+            self.out_hh += " [" + bc[1][0:2] + "]\n"
+        elif self.street == 3:
+            self.out_hh += "*** RIVER *** ["
+            self.out_hh += bc[0][0:2] + " "
+            self.out_hh += bc[0][2:4] + " "
+            self.out_hh += bc[0][4:6] + "]"
+            self.out_hh += " [" + bc[1][0:2] + "]"
+            self.out_hh += " [" + bc[2][0:2] + "]\n"
+        
+    def setup_betting(self):
+        """Initializes state variables for betting round"""
+        
+        bet_in_round = [0] * self.np
+        if self.street == 0:
+            starting_player = self.positions['utg']
+            bet_in_round[self.positions['small blind']] += int(self.bb / 2)
+            bet_in_round[self.positions['big blind']] += self.bb
+        else:
+            if self.np == 2:
+                starting_player = self.positions['big blind']
+            else:
+                starting_player = self.positions['small blind']
+        if self.game_type == 'L':
+            if self.street == 0 or self.street == 1:
+                self.bet_incr = self.bb
+            else:
+                self.bet_incr = self.bb * 2
+        else:
+            if self.street == 0:
+                self.bet_incr = self.bb
+            else:
+                self.bet_incr = 0
+        return bet_in_round, starting_player
 
-        # compute Pot size and Split Pot size
-        pot = sum(wagered_total)
+    def create_betting(self, actions, bet_in_round, starting_player):
+        """Prints players' actions for current round of betting
 
-        half_pot = float(pot) / 2
-        third_pot = pot / 3
+        There are five state variables used to this end:
+            still_in (list<bool>): Has the player folded yet?
+            amt_to_call (int): How much to call all bets
+            bet_in_round (list<int>): Total wagered by each player this round
+            cur_player (int): Who is the action is on?
+            total_bet (list<int>): Total wagered by each player over all rounds
 
-        # determine number of winners (multiple if pot is split)
+        Args:
+            actions (list<str>): Players actions and bet/raise sizes over
+                all rounds
+            bet_in_round (list<int>): The amount wagered on the current
+                found by each player
+            starting_player (int): First player to act in the current round
+        """
+        cur_player = starting_player
+        i = 0
+        while i < len(actions[self.street]):
+
+            # Cycle past players who have folded
+            while not self.still_in[cur_player]:
+                cur_player = (cur_player + 1) % self.np
+
+            # Update state variable
+            amt_to_call = max(bet_in_round) - bet_in_round[cur_player]
+
+            #Player folds
+            if actions[self.street][i] == 'f':
+                self.out_hh += self.players[cur_player] + ": folds\n"
+
+                # Update state variable
+                self.still_in[cur_player] = False
+
+            # Passive action: interpret as either a check or a call
+            elif actions[self.street][i] == 'c':
+                if amt_to_call == 0:
+                    self.out_hh += self.players[cur_player] + ": checks\n"
+                else:
+                    self.out_hh += self.players[cur_player]
+                    self.out_hh += ": calls $" + str(amt_to_call) + "\n"
+
+                    # Update state variable
+                    bet_in_round[cur_player] += amt_to_call
+
+            # Aggressive action
+            else:
+
+                # Extract bet/raise size, for no-limit, from action string
+                if self.game_type == 'N':
+                    i += 1
+                    bet_size = 0
+                    while actions[self.street][i].isdigit():
+                        bet_size = (bet_size * 10
+                                    + int(actions[self.street][i]))
+                        i += 1
+                    i -= 1
+                    self.bet_incr = (bet_size
+                                     - self.total_bet[cur_player]
+                                     - bet_in_round[cur_player]
+                                     - amt_to_call)
+
+                # Update state variable
+                bet_in_round[cur_player] += amt_to_call + self.bet_incr
+
+                # Interpret action as either a raise or a bet
+                if amt_to_call > 0 or self.street == 0:
+                    self.out_hh += self.players[cur_player]
+                    self.out_hh += ": raises $"
+                    self.out_hh += str(amt_to_call + self.bet_incr)
+                    self.out_hh += " to $" + str(max(bet_in_round)) + "\n"
+                else:
+                    self.out_hh += self.players[cur_player]
+                    self.out_hh += ": bets $" + str(self.bet_incr) + "\n"
+
+            # Update state variable
+            cur_player = (cur_player + 1) % self.np            
+            i += 1
+
+        # Update stat variable
+        for i in range(self.np):
+            self.total_bet[i] += bet_in_round[i]
+            
+        return cur_player
+
+    def showdown(self, results, cur_player):
+        """Prints concluding portion of hand history
+
+        Args:
+            results (list<float>): Net win/loss of each player
+            cur_player (int): The next player to act, for purposes of
+                showdown display ordering
+        """
+        players_left = sum(self.still_in)
+        pot = sum(self.total_bet)
+
+        # Determine winners
         winners = []
-        for i in range(len(self.players)):
-            if float(self.results[i]) > 0:
-                winners.append([i, self.players[i]])
+        for i in range(self.np):
+            if float(results[(cur_player + i) % self.np]) > 0.001:
+                winners.append(self.players[(cur_player + i) % self.np])
+        if len(winners) == 0:
+            for i in range(self.np):
+                if self.still_in[(cur_player + i) % self.np]:
+                    winners.append(self.players[(cur_player + i) % self.np])
 
-        if players_left > 1:
+        # Winner spam for case of No Showdown
+        if players_left == 1:
+            pot -= self.bet_incr
+            self.out_hh += "Uncalled bet ($" + str(self.bet_incr)
+            self.out_hh += ") returned to " + winners[0] + "\n"
+            self.out_hh += winners[0] + " collected "
+            self.out_hh += "$" + str(pot) + " from pot"
+
+        # Case of Showdown
+        else:
             self.out_hh += "*** SHOW DOWN ***\n"
-            for i in range(len(self.players)):
-                if players_in_hand[(current_player + i) % len(self.players)]:
-                    self.out_hh += self.players[(current_player + i) \
-                                                 % len(self.players)]
+            for i in range(self.np):
+                if self.still_in[(cur_player + i) % self.np]:
+                    self.out_hh += self.players[(cur_player + i) % self.np]
                     self.out_hh += ": shows ["
-                    self.out_hh += self.hole_cards[(current_player + i) \
-                                                    % len(self.players)][0:2]
+                    self.out_hh += self.hc[(cur_player + i) % self.np][0:2]
                     self.out_hh += " "
-                    self.out_hh += self.hole_cards[(current_player + i) \
-                                                    % len(self.players)][2:4]
+                    self.out_hh += self.hc[(cur_player + i) % self.np][2:4]
                     self.out_hh += "]\n"
-            if len(winners) == 1:
-                self.out_hh += winners[0][1] + " collected $"
-                self.out_hh += str(pot) + " from pot\n"
-            elif len(winners) == 2:
-                for winner in winners:
-                    self.out_hh += winner[1] + " collected $"
-                    self.out_hh += str(round(half_pot, 2)) + " from pot\n"
-            elif players_left == 3:
-                for i in range(len(self.players)):
-                    self.out_hh += self.players[i] + " collected $"
-                    self.out_hh += str(third_pot) + " from pot\n"
-            else: # blinds chop the pot with no profit
-                self.out_hh += self.players[self.positions['small blind']]
-                self.out_hh += " collected $" + str(round(half_pot, 2))
-                self.out_hh += " from pot\n"
-                self.out_hh += self.players[self.positions['big blind']]
-                self.out_hh += " collected $" + str(round(half_pot, 2))
-                self.out_hh += " from pot\n"
-        else:
-            pot -= current_bet
-            self.out_hh += "Uncalled bet ($" + str(current_bet)
-            self.out_hh += ") returned to " + winners[0][1] + '\n'
-            self.out_hh += winners[0][1] + " collected $" + str(pot)
-            self.out_hh += " from pot"
-
-        final_word = ['mucked'] * len(self.players)
-        if len(winners) == 1:
-            final_word[winners[0][0]] = 'won ($' + str(pot) + ')'
-        elif len(winners) == 2:
             for winner in winners:
-                final_word[winner[0]] = 'won ($' + str(round(half_pot)) + ')'
-        elif players_left == 3:
-            for i in range(len(self.players)):
-                final_word[i] = 'won ($' + str(third_pot) + ')'
-        else:
-            final_word[self.positions['small blind']] = \
-                        'won ($' + str(round(half_pot, 2)) + ')'
-            final_word[self.positions['big blind']] = \
-                        'won ($' + str(round(half_pot, 2)) + ')'
+                self.out_hh += winner + " collected $"
+                self.out_hh += str(pot / len(winners))
+                self.out_hh += " from pot\n"
 
-
+        # Summary section
+        final_word = {}
+        for player in self.players:
+            final_word[player] = 'mucked'
+        for winner in winners:
+            final_word[winner] = 'won ($' + str(pot / len(winners)) + ')'
         self.out_hh += "\n*** SUMMARY ***\n"
         self.out_hh += "Total pot $" + str(pot) + "\n"
-
-        if len(self.players) == 2:
-            for i in range(len(self.players)):
-                for j in range (len(self.players)):
-                    if self.seat_names[i] == self.players[j]:
-                        for pos_name, pos_value in self.positions.items():
-                            if (pos_value == j and
-                                (pos_name == 'small blind' or
-                                 pos_name == 'big blind')):
-                                self.out_hh += "Seat " + str(i + 1) + ": "
-                                self.out_hh += self.seat_names[i] + " ("
-                                self.out_hh += pos_name + ") "
-                                self.out_hh += final_word[j] + '\n'
-        else:
-            for i in range(len(self.players)):
-                for j in range (len(self.players)):
-                    if self.seat_names[i] == self.players[j]:
-                        for pos_name, pos_value in self.positions.items():
-                            if (pos_value == j and
-                                (pos_name == 'small blind' or
-                                 pos_name == 'big blind' or
-                                 pos_name == 'button')):
-                                self.out_hh += "Seat " + str(i + 1) + ": "
-                                self.out_hh += self.seat_names[i] + " ("
-                                self.out_hh += pos_name + ") "
-                                self.out_hh += final_word[j] + '\n'
+        for i in range(self.np):
+            self.out_hh += "Seat " + str(i + 1) + ": "
+            self.out_hh += self.seat_names[i] + " ("
+            for pos in self.positions.keys():
+                if (self.players[self.positions[pos]] == self.seat_names[i])\
+                   and (pos == 'small blind' or pos == 'big blind'\
+                        or (pos == 'button' and self.np == 3)):
+                    self.out_hh += pos + ") "
+            self.out_hh += final_word[self.seat_names[i]] + '\n'
         self.out_hh += "\n\n\n"
 
 
 def main(argv):
-    """
-    usage: ACPCHandConverter.py infile_name outfile_name table_num game_type bb
-    """
-    if len(argv) == 6:
-        infile_name, outfile_name, table_num, game_type, bb = argv[1:]
-        conv = ACPCHandConverter(infile_name, outfile_name, table_num,
-                                 game_type, bb)
-        conv.convert_hh()
+    converter = ACPCHandConverter(*argv[1:])
+    converter.convert_hh()
+
 
 if __name__ == "__main__":
     from sys import argv
