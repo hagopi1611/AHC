@@ -129,7 +129,7 @@ class ACPCHandConverter(object):
         """
         
         self.out_hh = "PokerStars Hand #"
-        self.out_hh += str(self.table_num) + str(hand_num) + ": "
+        self.out_hh += str(self.table_num) + str(hand_num).zfill(4) + ": "
         if self.game_type == 'L':
             self.out_hh += "Hold'em Fixed Limit ($" + str(self.bb)
             self.out_hh += "/$" + str(self.bb * 2) +  ") - "
