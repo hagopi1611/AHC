@@ -1,13 +1,13 @@
-with open('ACPC2013.bat', 'w') as ofile:
+with open('ACPC2017.bat', 'w') as ofile:
     out = ''
-    for i in range(100):
+    for i in range(1, 101):
         for j in range(2):
-            out += ('"c:\\program files (x86)\\python36-32\\python.exe" ' +
+            out += ('"python.exe" ' +
                     'ACPCHandConverter.py ' +
-                    '"ACPC_in2013\\2pl.hyperborean_iro.zbot.' +
+                    '"logs_2pn_2017\\Feste.Intermission.' +
                     str(i) + '.' + str(j) + '.log" ' +
-                    '"ACPC_out2013\\2pl.hyperborean_iro.zbot.' +
+                    '"2017ACPCOut\\Feste.Intermission.' +
                     str(i) + '.' + str(j) + '.out" ' +
-                    '1' + str(i).zfill(2) + str(j) + ' '
-                    'L\n')
+                    '2017' + str(i).zfill(3) + str(j) + ' ' +
+                    'N\n')
     ofile.write(out)
