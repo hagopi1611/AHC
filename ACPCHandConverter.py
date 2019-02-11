@@ -68,7 +68,7 @@ class ACPCHandConverter(object):
         """Public method to perform hand history conversion.  Calls all
         of the other methods in this class.
         """
-        
+
         with open(self.infile, 'r') as ifile, open(self.outfile, 'w') as ofile:
             first_hand = True
             for line in ifile:
@@ -93,7 +93,7 @@ class ACPCHandConverter(object):
         Args:
             line (str): An input hand history
         """
-        
+
         hh = line.rstrip('\n').split(':')
         hand_num = int(hh[1])
         actions = hh[2].split('/')
@@ -115,8 +115,8 @@ class ACPCHandConverter(object):
         cards = hh[3].split('|')
         cards_last = cards[-1].split('/')
         self.hc = [cards[0]]
-        if self.np != 2:
-            self.hc.append(cards[1])
+        for i in range(1, self.np - 1):
+            self.hc.append(cards[i])
         self.hc.append(cards_last[0])
         bc = cards_last[1:]
         return hand_num, actions, results, bc
@@ -127,7 +127,7 @@ class ACPCHandConverter(object):
         Args:
             hand_num (int): The unique number of the current hand
         """
-        
+
         self.out_hh = "PokerStars Hand #"
         self.out_hh += str(self.table_num) + str(hand_num).zfill(4) + ": "
         if self.game_type == 'L':
@@ -165,7 +165,7 @@ class ACPCHandConverter(object):
         Args:
             bc (list<str>): The board (community) cards
         """
-        
+
         if self.street == 1:
             self.out_hh += "*** FLOP *** ["
             self.out_hh += bc[0][0:2] + " "
@@ -184,10 +184,10 @@ class ACPCHandConverter(object):
             self.out_hh += bc[0][4:6] + "]"
             self.out_hh += " [" + bc[1][0:2] + "]"
             self.out_hh += " [" + bc[2][0:2] + "]\n"
-        
+
     def setup_betting(self):
         """Initializes state variables for betting round"""
-        
+
         bet_in_round = [0] * self.np
         if self.street == 0:
             starting_player = self.positions['utg']
@@ -227,6 +227,7 @@ class ACPCHandConverter(object):
                 found by each player
             starting_player (int): First player to act in the current round
         """
+
         cur_player = starting_player
         i = 0
         while i < len(actions[self.street]):
@@ -304,6 +305,7 @@ class ACPCHandConverter(object):
             cur_player (int): The next player to act, for purposes of
                 showdown display ordering
         """
+
         players_left = sum(self.still_in)
         pot = sum(self.total_bet)
 
@@ -339,7 +341,7 @@ class ACPCHandConverter(object):
             for winner in winners:
                 self.out_hh += winner + " collected $"
                 self.out_hh += str(pot / len(winners))
-                self.out_hh += " from pot\n"
+                self.out_hh += " from pot"
 
         # Summary section
         final_word = {}
@@ -351,12 +353,12 @@ class ACPCHandConverter(object):
         self.out_hh += "Total pot $" + str(pot) + "\n"
         for i in range(self.np):
             self.out_hh += "Seat " + str(i + 1) + ": "
-            self.out_hh += self.seat_names[i] + " ("
+            self.out_hh += self.seat_names[i] + " "
             for pos in self.positions.keys():
                 if (self.players[self.positions[pos]] == self.seat_names[i])\
                    and (pos == 'small blind' or pos == 'big blind'\
-                        or (pos == 'button' and self.np == 3)):
-                    self.out_hh += pos + ") "
+                        or (pos == 'button' and self.np > 2)):
+                    self.out_hh += "(" + pos + ") "
             self.out_hh += final_word[self.seat_names[i]] + '\n'
         self.out_hh += "\n\n\n"
 
