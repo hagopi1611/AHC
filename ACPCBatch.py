@@ -1,13 +1,11 @@
-with open('ACPC2017.bat', 'w') as ofile:
+with open('src\Test.bat', 'w') as ofile:
     out = ''
-    for i in range(1, 101):
-        for j in range(2):
-            out += ('"python.exe" ' +
-                    'ACPCHandConverter.py ' +
-                    '"logs_2pn_2017\\Feste.Intermission.' +
-                    str(i) + '.' + str(j) + '.log" ' +
-                    '"2017ACPCOut\\Feste.Intermission.' +
-                    str(i) + '.' + str(j) + '.out" ' +
-                    '2017' + str(i).zfill(3) + str(j) + ' ' +
-                    'N\n')
+    for i in range(0, 100):
+        for j in range(1):
+            out += ('python.exe ' +
+                    'src\\acpc_hand_converter.py ' +
+                    'src\\ACPC_2018_logs\\2018-6pn-test-competition\\6pn.Myteam2.Paco2.PhantomX2.G5.Francois.Jackson.' +
+                    str(i) + '.' + str(j) + '.log ' +
+                    'out\\Test\\6pn.Myteam2.Paco2.PhantomX2.G5.Francois.Jackson.' +
+                    str(i) + '.' + str(j) + '.out' + '\n')
     ofile.write(out)
