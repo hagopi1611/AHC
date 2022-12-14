@@ -52,7 +52,12 @@ class ACPCHandConverter():
                 # Extract game parameters from first line of input file
                 if line[0:6] == "# name":
                     game_param = line.rstrip("\n").split(" ")
-                    table_num = game_param[-1]
+                    infile_split = self.infile.split(".")
+                    if len(infile_split[-3]) == 1:
+                        table_num = "0" + infile_split[-3] + infile_split[-2]
+                    else:
+                        table_num = infile_split[-3] + infile_split[-2]
+                    # table_num = game_param[-1]
                     game_type = game_param[3].split(".")[1]
                     continue
                 # Wait for hand histories to start
