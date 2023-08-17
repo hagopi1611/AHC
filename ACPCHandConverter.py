@@ -30,9 +30,10 @@ class ACPCHandConverter():
             the current round of betting
         out_hh (str): The output hand history to be written to outfile
     """
-    def __init__(self, infile, outfile):
+    def __init__(self, infile, outfile, year):
         self.infile = infile
         self.outfile = outfile
+        self.year = year
         self.first_hand = True
         self.seats = []
         self.shift = 0
@@ -52,13 +53,28 @@ class ACPCHandConverter():
                 # Extract game parameters from first line of input file
                 if line[0:6] == "# name":
                     game_param = line.rstrip("\n").split(" ")
+                    ### table_num = game_param[-1]
+
+                    ## infile_split = self.infile.split(".")
+                    ## if len(infile_split[-3]) == 1:
+                    ##     table_num = "0" + infile_split[-3] + infile_split[-2]
+                    ## else:
+                    ##     table_num = infile_split[-3] + infile_split[-2]
+
                     infile_split = self.infile.split(".")
-                    if len(infile_split[-3]) == 1:
-                        table_num = "0" + infile_split[-3] + infile_split[-2]
-                    else:
-                        table_num = infile_split[-3] + infile_split[-2]
-                    # table_num = game_param[-1]
-                    game_type = game_param[3].split(".")[1]
+                    infile_subsplit1 = infile_split[-3].split("-")
+                    infile_subsplit2 = infile_split[-2].split("-")
+                    table_num = self.year + infile_subsplit1[-1] + infile_subsplit2[-1]
+
+                    # if len(infile_split[-2]) == 1:
+                    #     table_num = "0" + '1' + infile_split[-2] + infile_split[-1]
+                    # else:
+                    #     table_num = '1' + infile_split[-2] + infile_split[-1]
+
+                    # game_type = game_param[3].split(".")[1]
+                    game_type = "limit"
+                    # infile_split = game_param[2].split("_")
+                    # table_num = infile_split[-1]
                     continue
                 # Wait for hand histories to start
                 if line[0:5] != "STATE":

@@ -1,11 +1,11 @@
-with open('src\Test.bat', 'w') as ofile:
+with open('hh.bat', 'w') as ofile:
     out = ''
-    for i in range(0, 100):
-        for j in range(1):
-            out += ('python.exe ' +
-                    'src\\acpc_hand_converter.py ' +
-                    'src\\ACPC_2018_logs\\2018-6pn-test-competition\\6pn.Myteam2.Paco2.PhantomX2.G5.Francois.Jackson.' +
-                    str(i) + '.' + str(j) + '.log ' +
-                    'out\\Test\\6pn.Myteam2.Paco2.PhantomX2.G5.Francois.Jackson.' +
-                    str(i) + '.' + str(j) + '.out' + '\n')
+    for i in range(50):
+        for j in range(2):
+            out += ('python3 ' +
+                    'ACPCHandConverter.py ' +
+                    '\"input/2011-2p-limit.Calamari.Hyperborean-2011-2p-limit-iro.run-' +
+                    str(i) + '.perm-' + str(j) + '.log\" ' +
+                    '\"Out/2011-2p-limit.Calamari.Hyperborean-2011-2p-limit-iro.run-' +
+                    str(i) + '.perm-' + str(j) + '.out\" ' + '2011\n')
     ofile.write(out)
